@@ -56,8 +56,8 @@ HPS.set(1, ("foo", 42))
 // Or leave the 1 out if you like, since we usually start there
 HPS.set(("foo", 42))
 
-// Which simply delegates to the Composite instance
-Composite[(String,Int)].set(1, ("foo", 42))
+// Which simply delegates to the Write instance
+Write[(String,Int)].set(1, ("foo", 42))
 ```
 
 **doobie** can derive `Composite` instances for primitive column types and options thereof, plus tuples, `HList`s, shapeless records, and case classes whose elements have `Composite` instances. These primitive column types are identified by `Meta` instances, which describe `null`-aware single-column mappings.
@@ -92,7 +92,7 @@ val pid = PersonId.unsafeFromLegacy("sales:42")
 Because `PersonId` is a case class of primitive column values, we can already map it across two columns. We can look at its `Composite` instance and see that its column span is two:
 
 ```tut:nofail
-Composite[PersonId].length
+Write[PersonId].length
 ```
 
 However if we try to use this type for a *single* column value (i.e., as a query parameter, which requires a `Param` instance - `Param` is like `Composite` but disallows nesting), it doesn't compile.
@@ -104,21 +104,21 @@ sql"select * from person where id = $pid"
 According to the error message we need a `Param[PersonId :: HNil]` instance which requires a `Meta` instance for each member, which means we need a `Meta[PersonId]`.
 
 ```tut:fail
-Meta[PersonId]
+Put[PersonId]
 ```
 
 ... and we don't have one. So how do we get one? The simplest way is by basing it on an existing `Meta` instance, using `xmap`. So we simply provide `String => PersonId` and vice-versa and we're good to go.
 
 ```tut:silent
 implicit val PersonIdMeta: Meta[PersonId] =
-  Meta[String].xmap(PersonId.unsafeFromLegacy, _.toLegacy)
+  Meta[String].timap(PersonId.unsafeFromLegacy)(_.toLegacy)
 ```
 
 Now it compiles as a column value and as a `Composite` that maps to a *single* column:
 
 ```tut
 sql"select * from person where id = $pid"
-Composite[PersonId].length
+Write[PersonId].length
 sql"select 'podiatry:123'".query[PersonId].quick.unsafeRunSync
 ```
 
@@ -134,8 +134,8 @@ Here we go:
 
 ```tut:silent
 implicit val JsonMeta: Meta[Json] =
-  Meta.other[PGobject]("json").xmap[Json](
-    a => parse(a.getValue).leftMap[Json](e => throw e).merge, // failure raises an exception
+  Meta.other[PGobject]("json").timap[Json](
+    a => parse(a.getValue).leftMap[Json](e => throw e).merge)( // failure raises an exception
     a => {
       val o = new PGobject
       o.setType("json")
@@ -153,8 +153,8 @@ Given this mapping to and from `Json` we can construct a *further* mapping to an
 
 ```tut:silent
 def codecMeta[A : Encoder : Decoder : TypeTag]: Meta[A] =
-  Meta[Json].xmap[A](
-    _.as[A].fold[A](throw _, identity),
+  Meta[Json].timap[A](
+    _.as[A].fold[A](throw _, identity))(
     _.asJson
   )
 ```
@@ -213,11 +213,8 @@ sql"select name, owner from pet".query[(String,String)].quick.unsafeRunSync
 We get `Composite[A]` and `Composite[Option[A]]` for free given `Meta[A]`, or for tuples, `HList`s, shapeless records, and case classes whose fields have `Composite` instances. This covers a lot of cases, but we still need a way to map other types. For example, what if we wanted to map a `java.awt.Point` across two columns? Because it's not a tuple or case class we can't do it for free, but we can get there via invariant map. Here we map `Point` to a pair of `Int` columns.
 
 ```tut:silent
-implicit val Point2DComposite: Composite[Point] =
-  Composite[(Int, Int)].imap(
-    (t: (Int,Int)) => new Point(t._1, t._2))(
-    (p: Point) => (p.x, p.y)
-  )
+implicit val Point2DComposite: Read[Point] =
+  Read[(Int, Int)].map { case (x, y) => new Point(x, y) }
 ```
 
 And it works!

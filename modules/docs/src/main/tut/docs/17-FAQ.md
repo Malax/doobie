@@ -26,7 +26,7 @@ val y = xa.yolo; import y._
 
 Not much, sadly. Neither Scala's presentation compiler (used by Scala-IDE and ENSIME) nor Intellij's custom typechecker can deal with shapeless `ProductArgs` which is used by the `sql` and `fr/fr0` interpolators.
 
-There is an open issue for IntelliJ that you can vote up if you like, 
+There is an open issue for IntelliJ that you can vote up if you like,
 [SCL-10928](https://youtrack.jetbrains.com/issue/SCL-10928).
 
 It has been [reported](https://github.com/tpolecat/doobie/issues/508) that `-Ymacro-expand:none` improves the behavior of Scala-IDE, so you might investigate that (and please comment on the issue with your experience).
@@ -194,17 +194,14 @@ State(String, City(String, Point2D.Double)) // our structure
 And indeed this type has no column vector mapping.
 
 ```tut:fail:plain
-Composite[Point2D.Double]
+Read[Point2D.Double]
 ```
 
-If this were an atomic type it would be a matter of importing or defining a `Meta` instance, but here we need to define a `Composite` directly because we're mapping a type with several members. As this type is isomorphic to `(Double, Double)` we can simply base our mapping off of the existing `Composite`.
+If this were an atomic type it would be a matter of importing or defining a `Meta` instance, but here we need to define a `Read` directly because we're mapping a type with several members. As this type is isomorphic to `(Double, Double)` we can simply base our mapping off of the existing `Read`.
 
 ```tut:silent
-implicit val Point2DComposite: Composite[Point2D.Double] =
-  Composite[(Double, Double)].imap(
-    (t: (Double, Double)) => new Point2D.Double(t._1, t._2))(
-    (p: Point2D.Double) => (p.x, p.y)
-  )
+implicit val Point2DComposite: Read[Point2D.Double] =
+  Read[(Double, Double)].map { case (x, y) => new Point2D.Double(x, y) }
 ```
 
 Our derivation now works and the code compiles.
@@ -271,6 +268,5 @@ case class NonEmptyString(value: String)
 
 // If the domain for NonEmptyStrings is nes
 implicit val nesMeta: Meta[NonEmptyString] =
-  string("nes").xmap(NonEmptyString.apply, _.value)
-  }
+  string("nes").imap(NonEmptyString.apply)(_.value)
 ```
